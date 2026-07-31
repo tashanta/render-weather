@@ -1,0 +1,69 @@
+services:
+  # Redis instance - Plan gratuit
+  - type: redis
+    name: render-weather-redis
+    plan: free
+    ipAllowList: []
+
+  # Web Service API - Plan Hobby
+  - type: web
+    name: render-weather-api
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    
+    envVars:
+      # Port d'écoute (défaut géré par Render)
+      - key: PORT
+        value: 8080
+      
+      # Environment
+      - key: ENV
+        value: production
+      
+      # Redis URL (lié automatiquement à l'instance Redis)
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: render-weather-redis
+          property: connectionString
+      
+      # Auth0 - À configurer manuellement via dashboard (secrets)
+      - key: AUTH0_DOMAIN
+        sync: false
+      
+      - key: AUTH0_AUDIENCE
+        sync: false
+      
+      # OpenWeatherMap API Key - À configurer manuellement (secret)
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      
+      # CORS - Optionnel, à configurer si nécessaire
+      - key: ALLOWED_ORIGINS
+        value: ""
+      
+      # Configuration Cache
+      - key: CACHE_TTL
+        value: 3600
+      
+      - key: CACHE_L1_MAX_SIZE
+        value: 1000
+      
+      # Configuration Circuit Breaker
+      - key: CB_TIMEOUT
+        value: 1000
+      
+      - key: CB_MAX_FAILURES
+        value: 5
+      
+      - key: CB_OPEN_DURATION
+        value: 30
+      
+      # Logging
+      - key: LOG_LEVEL
+        value: info
