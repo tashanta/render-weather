@@ -4,12 +4,14 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+
 	"github.com/yourusername/render-weather/internal/models"
 )
 
@@ -100,7 +102,7 @@ func (p *OpenWeatherMapProvider) fetchWeather(ctx context.Context, city string) 
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, &ClientError{Message: "city not found", StatusCode: resp.StatusCode}
@@ -153,6 +155,6 @@ func (e *ClientError) Error() string {
 }
 
 func isClientError(err error) bool {
-	_, ok := err.(*ClientError)
-	return ok
+	var clientErr *ClientError
+	return errors.As(err, &clientErr)
 }

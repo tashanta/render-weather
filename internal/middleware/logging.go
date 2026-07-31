@@ -10,6 +10,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type contextKey string
+
+const requestIDKey contextKey = "request_id"
+
 type responseWriter struct {
 	http.ResponseWriter
 	statusCode int
@@ -28,7 +32,7 @@ func Logging() func(http.Handler) http.Handler {
 			requestID := uuid.New().String()
 
 			// Add request_id to context
-			ctx := context.WithValue(r.Context(), "request_id", requestID)
+			ctx := context.WithValue(r.Context(), requestIDKey, requestID)
 			r = r.WithContext(ctx)
 
 			// Wrap response writer to capture status code

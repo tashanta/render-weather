@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
 	"github.com/yourusername/render-weather/internal/background"
 	"github.com/yourusername/render-weather/internal/cache"
 	"github.com/yourusername/render-weather/internal/config"

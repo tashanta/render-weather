@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+
 	"github.com/yourusername/render-weather/internal/models"
 )
 
@@ -50,9 +51,7 @@ func (c *HybridCache) Set(ctx context.Context, key string, value *models.Weather
 	c.l1.Set(key, value, ttl)
 
 	// Try to set L2, but don't fail if Redis is down
-	if err := c.l2.Set(ctx, key, value, ttl); err != nil {
-		// Degraded mode is acceptable - continue with L1 only
-	}
+	_ = c.l2.Set(ctx, key, value, ttl)
 
 	return nil
 }
