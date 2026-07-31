@@ -128,3 +128,8 @@ func (m *JWKSManager) IsReady() bool {
 	defer m.mu.RUnlock()
 	return m.ready
 }
+
+// Ready is an alias for IsReady() to match middleware interface
+func (m *JWKSManager) Ready() bool {
+	return m.IsReady()
+}
