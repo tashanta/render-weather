@@ -45,6 +45,7 @@ func WeatherHandler(svc WeatherServiceGetter) http.HandlerFunc {
 				w.WriteHeader(http.StatusTooManyRequests)
 				fmt.Fprintf(w, `{"error":"rate_limited"}`)
 			case errors.Is(err, services.ErrCircuitBreakerOpen):
+				w.Header().Set("Retry-After", "30")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				fmt.Fprintf(w, `{"error":"service_unavailable"}`)
 			default:
