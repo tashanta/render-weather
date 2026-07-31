@@ -3,6 +3,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,13 @@ import (
 	"github.com/sony/gobreaker"
 	"github.com/yourusername/render-weather/internal/models"
 	"github.com/yourusername/render-weather/internal/providers"
+)
+
+// Sentinel errors
+var (
+	ErrCityNotFound        = errors.New("city not found")
+	ErrRateLimited         = errors.New("rate limited")
+	ErrCircuitBreakerOpen  = errors.New("circuit breaker open")
 )
 
 type CacheGetter interface {
@@ -58,13 +66,13 @@ func NewWeatherService(
 	}
 }
 
-func (s *WeatherService) GetWeather(ctx context.Context, city string) (*models.Weather, error) {
+func (s *WeatherService) GetWeather(ctx context.Context, city string) (*models.Weather, bool, error) {
 	key := fmt.Sprintf("weather:%s", strings.ToLower(city))
 
 	// Check cache first
 	if weather, found := s.cache.Get(ctx, key); found {
 		log.Debug().Str("city", city).Str("key", key).Msg("cache hit")
-		return weather, nil
+		return weather, true, nil
 	}
 
 	log.Debug().Str("city", city).Str("key", key).Msg("cache miss")
@@ -77,9 +85,26 @@ func (s *WeatherService) GetWeather(ctx context.Context, city string) (*models.W
 	if err != nil {
 		if err == gobreaker.ErrOpenState {
 			log.Warn().Str("city", city).Msg("circuit breaker open")
-			return nil, fmt.Errorf("weather service temporarily unavailable")
+			return nil, false, ErrCircuitBreakerOpen
 		}
-		return nil, fmt.Errorf("fetch weather: %w", err)
+		
+		// Check for provider-specific errors
+		var clientErr *providers.ClientError
+		if errors.As(err, &clientErr) {
+			if clientErr.StatusCode == 404 {
+				return nil, false, ErrCityNotFound
+			}
+			if clientErr.StatusCode == 429 {
+				return nil, false, ErrRateLimited
+			}
+		}
+		
+		// Check for rate limit in error message
+		if strings.Contains(err.Error(), "rate limit") {
+			return nil, false, ErrRateLimited
+		}
+		
+		return nil, false, fmt.Errorf("fetch weather: %w", err)
 	}
 
 	weather := result.(*models.Weather)
@@ -90,5 +115,5 @@ func (s *WeatherService) GetWeather(ctx context.Context, city string) (*models.W
 		// Don't fail the request if caching fails
 	}
 
-	return weather, nil
+	return weather, false, nil
 }
