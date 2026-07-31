@@ -120,6 +120,28 @@ Client → API (/weather/{city})
 - **Retour à CLOSED:** Si requête HALF-OPEN réussit
 - **Bibliothèque:** `github.com/sony/gobreaker` ou implémentation custom
 
+### Retry et Backoff
+
+**Pour Auth0 (récupération JWKS):**
+- **Stratégie:** Exponential backoff
+- **Tentatives initiales:** 3 tentatives au démarrage (1s, 2s, 4s)
+- **En cas d'échec total:** Retry continu en background toutes les 30s jusqu'à succès
+- **Timeout par tentative:** 5 secondes
+- **Bibliothèque:** `github.com/cenkalti/backoff/v4`
+
+**Pour OpenWeatherMap:**
+- **Stratégie:** Exponential backoff avec jitter
+- **Tentatives:** 3 tentatives max par requête utilisateur
+- **Délais:** 100ms, 300ms, 900ms (avec jitter ±20%)
+- **Timeout global:** 1s (incluant retries)
+- **Conditions de retry:**
+  - HTTP 5xx (erreur serveur transitoire)
+  - Timeout ou erreur réseau
+  - **Pas de retry sur 429** (circuit breaker gère)
+  - **Pas de retry sur 4xx** (erreur client)
+- **Circuit breaker appliqué après retries**
+- **Bibliothèque:** `github.com/cenkalti/backoff/v4`
+
 ## API Endpoints
 
 ### Endpoint Météo
@@ -262,24 +284,35 @@ Header: `Retry-After: 30`
 
 ### Préchargement au Démarrage
 
-**Séquence d'initialisation:**
+**Séquence d'initialisation (non-bloquante):**
 
 ```
 1. Application démarre
-2. Connexion à Redis
-   ├─ Succès → Continue
-   └─ Échec → Log warning, continue avec L1 uniquement
-3. Scan des clés `weather:*` dans Redis
-4. Chargement de toutes les entrées valides (non expirées) dans L1
-5. Log du nombre d'entrées préchargées
-6. Démarrage du serveur HTTP
+2. Lancement goroutine background : Préchargement cache L1 depuis Redis
+   ├─ Connexion à Redis avec retry/backoff (max 3 tentatives)
+   ├─ Si succès : Scan clés `weather:*` + chargement en L1
+   ├─ Si échec : Log warning, L1 reste vide
+   └─ Log du nombre d'entrées préchargées (ou 0 si échec)
+3. Lancement goroutine background : Chargement JWKS Auth0
+   ├─ Récupération clés publiques Auth0 avec retry/backoff (max 3 tentatives)
+   ├─ Si succès : JWKS disponible pour validation JWT
+   ├─ Si échec : Log error, retry en continu jusqu'à succès
+   └─ Endpoints protégés retournent 503 tant que JWKS non disponible
+4. Démarrage immédiat du serveur HTTP (pas d'attente)
 ```
 
 **Avantages:**
-- Réduction drastique des appels Redis après démarrage
-- Temps de réponse optimal dès la première requête
+- **Cold start minimal** : Serveur démarre immédiatement, chargements en background
+- Réduction drastique des appels Redis après préchargement
+- Temps de réponse optimal dès que L1 est chargé
 - Économie de coûts Redis (plan gratuit limité)
 - Meilleure résilience (données chaudes déjà en mémoire)
+- Service opérationnel même si préchargement échoue
+
+**Comportement pendant préchargement:**
+- `/health` retourne 200 immédiatement
+- `/weather/*` retourne 503 tant que JWKS non disponible
+- Une fois JWKS chargé, endpoints météo fonctionnent normalement (avec ou sans L1 préchargé)
 
 ### Logique de Récupération
 
@@ -439,16 +472,15 @@ LOG_LEVEL=info                     # debug/info/warn/error (défaut: info)
 
 ### Validation au Démarrage
 
-**Séquence de validation:**
+**Séquence de validation (non-bloquante):**
 
 1. Chargement des variables d'environnement
 2. Vérification présence des variables requises
 3. Échec immédiat si variables critiques manquantes (exit code 1)
 4. Log de la configuration chargée (sans secrets)
-5. Test de connexion Redis (non-bloquant si échec)
-6. Chargement clés publiques Auth0 JWKS
-7. Préchargement cache depuis Redis
-8. Démarrage serveur HTTP
+5. Lancement goroutine : Préchargement cache L1 depuis Redis (background)
+6. Lancement goroutine : Chargement JWKS Auth0 (background avec retry)
+7. Démarrage immédiat du serveur HTTP (pas d'attente des goroutines)
 
 **Fichier `.env.example`:**
 
@@ -490,7 +522,7 @@ Template à créer avec toutes les variables pour faciliter le setup local.
 
 ```dockerfile
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -575,9 +607,11 @@ internal/
 **Avec mocks uniquement (pas d'appels réels) :**
 
 - Test du circuit breaker avec serveur HTTP mock lent/down/429
+- Test du retry/backoff avec serveur mock transitoire (5xx → 200)
 - Test du flow complet : requête → cache miss → OpenWeatherMap mock → cache store
 - Test mode dégradé (Redis down via mock)
-- Test préchargement cache au démarrage (Redis mock avec données)
+- Test préchargement cache au démarrage en goroutine (Redis mock avec données)
+- Test chargement JWKS en goroutine (Auth0 mock avec retry)
 - Test authentification avec JWT mock (pas d'appel Auth0 réel)
 - Test timeout 1s avec serveur mock lent
 
@@ -639,11 +673,12 @@ go test -race ./...
 ## Stack Technique
 
 ### Backend
-- **Langage:** Go 1.21+
+- **Langage:** Go 1.26+
 - **Framework HTTP:** Chi (`github.com/go-chi/chi/v5`)
 - **Auth:** Auth0 + JWT validation (`github.com/auth0/go-jwt-middleware`)
 - **Cache Redis:** `github.com/redis/go-redis/v9`
 - **Circuit Breaker:** `github.com/sony/gobreaker`
+- **Retry/Backoff:** `github.com/cenkalti/backoff/v4`
 - **Logging:** `github.com/rs/zerolog` ou `go.uber.org/zap`
 - **Tests:** `testing` + `github.com/stretchr/testify`
 
@@ -657,13 +692,14 @@ go test -race ./...
 
 ### Plan Render Hobby
 - Service peut hiberner après inactivité (cold start ~10-30s)
+  - Mitigation : Démarrage non-bloquant avec goroutines (JWKS + préchargement cache)
 - 512 MB RAM (ajuster taille cache L1 si nécessaire)
 - Pas de CDN edge (cache L1+L2 crucial)
 
 ### OpenWeatherMap Gratuit
 - Rate limit : 60 requêtes/minute
 - Quota : 1,000,000 requêtes/mois
-- Mitigation : Cache 1h + circuit breaker
+- Mitigation : Cache 1h + circuit breaker + retry avec backoff
 
 ### Redis Gratuit Render
 - Capacité limitée (quelques MB)
