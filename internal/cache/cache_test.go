@@ -41,7 +41,7 @@ func TestHybridCache_Get_L1Miss_L2Hit(t *testing.T) {
 
 	assert.True(t, found)
 	assert.Equal(t, "London", retrieved.City)
-	
+
 	// Should now be in L1
 	l1Retrieved, l1Found := memCache.Get("weather:london")
 	assert.True(t, l1Found)
@@ -117,11 +117,11 @@ func TestHybridCache_PreloadFromRedis(t *testing.T) {
 
 	// Verify L1 has the data
 	assert.Equal(t, 2, memCache.Len())
-	
+
 	parisWeather, found := memCache.Get("weather:paris")
 	assert.True(t, found)
 	assert.Equal(t, "Paris", parisWeather.City)
-	
+
 	londonWeather, found := memCache.Get("weather:london")
 	assert.True(t, found)
 	assert.Equal(t, "London", londonWeather.City)

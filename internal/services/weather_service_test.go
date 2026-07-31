@@ -46,7 +46,7 @@ func (m *mockCache) Set(ctx context.Context, key string, value *models.Weather, 
 func TestWeatherService_GetWeather_CacheHit(t *testing.T) {
 	mockProvider := &mockWeatherProvider{}
 	mockCache := newMockCache()
-	
+
 	// Pre-populate cache
 	cachedWeather := &models.Weather{City: "Paris", Temperature: 18.5}
 	mockCache.Set(context.Background(), "weather:paris", cachedWeather, 1*time.Hour)

@@ -16,9 +16,9 @@ import (
 
 // Sentinel errors
 var (
-	ErrCityNotFound        = errors.New("city not found")
-	ErrRateLimited         = errors.New("rate limited")
-	ErrCircuitBreakerOpen  = errors.New("circuit breaker open")
+	ErrCityNotFound       = errors.New("city not found")
+	ErrRateLimited        = errors.New("rate limited")
+	ErrCircuitBreakerOpen = errors.New("circuit breaker open")
 )
 
 type CacheGetter interface {
@@ -48,8 +48,8 @@ func NewWeatherService(
 		Timeout:     openDuration,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
 			failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
-			return counts.ConsecutiveFailures >= uint32(maxFailures) || 
-				   (counts.Requests >= 10 && failureRatio >= 0.6)
+			return counts.ConsecutiveFailures >= uint32(maxFailures) ||
+				(counts.Requests >= 10 && failureRatio >= 0.6)
 		},
 		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
 			log.Info().
@@ -89,7 +89,7 @@ func (s *WeatherService) GetWeather(ctx context.Context, city string) (*models.W
 			log.Warn().Str("city", city).Msg("circuit breaker open")
 			return nil, false, ErrCircuitBreakerOpen
 		}
-		
+
 		// Check for provider-specific errors
 		var clientErr *providers.ClientError
 		if errors.As(err, &clientErr) {
@@ -100,12 +100,12 @@ func (s *WeatherService) GetWeather(ctx context.Context, city string) (*models.W
 				return nil, false, ErrRateLimited
 			}
 		}
-		
+
 		// Check for rate limit in error message
 		if strings.Contains(err.Error(), "rate limit") {
 			return nil, false, ErrRateLimited
 		}
-		
+
 		return nil, false, fmt.Errorf("fetch weather: %w", err)
 	}
 

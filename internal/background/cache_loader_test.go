@@ -21,7 +21,7 @@ func (m *mockHybridCache) PreloadFromRedis(ctx context.Context) error {
 	m.preloadCalled = true
 	shouldFail := m.shouldFail
 	m.mu.Unlock()
-	
+
 	if shouldFail {
 		return assert.AnError
 	}
