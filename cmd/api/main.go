@@ -90,12 +90,16 @@ func main() {
 	router.Use(middleware.Recovery())
 	router.Use(middleware.Logging())
 	router.Use(middleware.CORS(cfg.AllowedOrigins))
-	router.Use(middleware.Auth(jwksManager, cfg.Auth0Audience))
 
-	// 12. Register routes
+	// 12. Register public routes (no auth)
 	router.Get("/health", handlers.HealthHandler())
-	router.Get("/weather/{city}", handlers.WeatherHandler(weatherService))
-	router.Get("/api/v1/weather/{city}", handlers.WeatherHandler(weatherService))
+
+	// 13. Register protected routes (with auth)
+	router.Group(func(r chi.Router) {
+		r.Use(middleware.Auth(jwksManager, cfg.Auth0Audience))
+		r.Get("/weather/{city}", handlers.WeatherHandler(weatherService))
+		r.Get("/api/v1/weather/{city}", handlers.WeatherHandler(weatherService))
+	})
 
 	log.Info().Msg("routes registered: /health, /weather/{city}, /api/v1/weather/{city}")
 

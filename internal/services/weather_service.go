@@ -47,7 +47,9 @@ func NewWeatherService(
 		Interval:    60 * time.Second,
 		Timeout:     openDuration,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
-			return counts.ConsecutiveFailures >= uint32(maxFailures)
+			failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
+			return counts.ConsecutiveFailures >= uint32(maxFailures) || 
+				   (counts.Requests >= 10 && failureRatio >= 0.6)
 		},
 		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
 			log.Info().

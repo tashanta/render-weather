@@ -4,9 +4,9 @@ package cache
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/yourusername/render-weather/internal/models"
 )
 
@@ -74,6 +74,6 @@ func (c *HybridCache) PreloadFromRedis(ctx context.Context) error {
 		loaded++
 	}
 
-	log.Printf("preloaded %d entries from Redis to L1 cache", loaded)
+	log.Info().Int("loaded", loaded).Msg("preloaded entries from Redis to L1 cache")
 	return nil
 }

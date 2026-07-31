@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,7 +46,7 @@ func (m *JWKSManager) Start() {
 		b.InitialInterval = 100 * time.Millisecond
 		b.Multiplier = 2.0
 		b.MaxInterval = 1 * time.Second
-		b.MaxElapsedTime = 5 * time.Second
+		b.MaxElapsedTime = 0 // Infinite retries
 
 		operation := func() error {
 			if err := m.fetchJWKS(); err != nil {
@@ -83,7 +84,12 @@ func (m *JWKSManager) Start() {
 }
 
 func (m *JWKSManager) fetchJWKS() error {
-	url := fmt.Sprintf("%s/.well-known/jwks.json", m.auth0Domain)
+	domain := m.auth0Domain
+	// Add https:// if no protocol specified
+	if !strings.HasPrefix(domain, "http://") && !strings.HasPrefix(domain, "https://") {
+		domain = "https://" + domain
+	}
+	url := fmt.Sprintf("%s/.well-known/jwks.json", domain)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
