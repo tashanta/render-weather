@@ -3,6 +3,7 @@ package background
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,16 +11,27 @@ import (
 )
 
 type mockHybridCache struct {
+	mu            sync.Mutex
 	preloadCalled bool
 	shouldFail    bool
 }
 
 func (m *mockHybridCache) PreloadFromRedis(ctx context.Context) error {
+	m.mu.Lock()
 	m.preloadCalled = true
-	if m.shouldFail {
+	shouldFail := m.shouldFail
+	m.mu.Unlock()
+	
+	if shouldFail {
 		return assert.AnError
 	}
 	return nil
+}
+
+func (m *mockHybridCache) getPreloadCalled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.preloadCalled
 }
 
 func TestStartCacheLoader_Success(t *testing.T) {
@@ -30,7 +42,7 @@ func TestStartCacheLoader_Success(t *testing.T) {
 	// Give goroutine time to execute
 	time.Sleep(100 * time.Millisecond)
 
-	assert.True(t, mock.preloadCalled)
+	assert.True(t, mock.getPreloadCalled())
 }
 
 func TestStartCacheLoader_Retries(t *testing.T) {
@@ -41,5 +53,5 @@ func TestStartCacheLoader_Retries(t *testing.T) {
 	// Should retry, give it time
 	time.Sleep(500 * time.Millisecond)
 
-	assert.True(t, mock.preloadCalled)
+	assert.True(t, mock.getPreloadCalled())
 }
