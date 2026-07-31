@@ -53,9 +53,10 @@ func TestWeatherService_GetWeather_CacheHit(t *testing.T) {
 
 	service := NewWeatherService(mockProvider, mockCache, 1*time.Second, 5, 30*time.Second, 1*time.Hour)
 
-	weather, err := service.GetWeather(context.Background(), "Paris")
+	weather, cacheHit, err := service.GetWeather(context.Background(), "Paris")
 
 	require.NoError(t, err)
+	assert.True(t, cacheHit)
 	assert.Equal(t, "Paris", weather.City)
 	assert.Equal(t, 0, mockProvider.callCount, "Should not call provider on cache hit")
 }
@@ -68,9 +69,10 @@ func TestWeatherService_GetWeather_CacheMiss(t *testing.T) {
 
 	service := NewWeatherService(mockProvider, mockCache, 1*time.Second, 5, 30*time.Second, 1*time.Hour)
 
-	weather, err := service.GetWeather(context.Background(), "London")
+	weather, cacheHit, err := service.GetWeather(context.Background(), "London")
 
 	require.NoError(t, err)
+	assert.False(t, cacheHit)
 	assert.Equal(t, "London", weather.City)
 	assert.Equal(t, 1, mockProvider.callCount)
 
@@ -90,13 +92,14 @@ func TestWeatherService_GetWeather_CircuitBreakerOpens(t *testing.T) {
 
 	// First 2 calls should fail and open circuit
 	for i := 0; i < 3; i++ {
-		_, err := service.GetWeather(context.Background(), "TestCity")
+		_, _, err := service.GetWeather(context.Background(), "TestCity")
 		assert.Error(t, err)
 	}
 
 	// Circuit should now be open - provider should not be called
 	initialCount := mockProvider.callCount
-	_, err := service.GetWeather(context.Background(), "TestCity")
+	_, _, err := service.GetWeather(context.Background(), "TestCity")
 	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrCircuitBreakerOpen)
 	assert.Equal(t, initialCount, mockProvider.callCount, "Circuit breaker should prevent call")
 }

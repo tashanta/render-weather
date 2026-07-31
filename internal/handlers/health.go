@@ -1,0 +1,15 @@
+// internal/handlers/health.go
+package handlers
+
+import (
+	"net/http"
+)
+
+// HealthHandler returns a simple health check handler
+func HealthHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	}
+}
