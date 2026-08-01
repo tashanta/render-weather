@@ -142,6 +142,19 @@ docker build -t weather-api .
 docker run --env-file .env -p 8080:8080 weather-api
 ```
 
+### Docker Compose (local stack)
+
+Runs the API with a local Redis, equivalent to Render's free Redis service:
+
+```bash
+cp .env.example .env   # fill in real credentials
+docker compose up      # builds and starts the API (8080) + Redis
+```
+
+- `api`: builds from the Dockerfile, maps `8080:8080`, reads `.env` (`REDIS_URL` overridden to `redis://redis:6379`), starts after the Redis healthcheck passes
+- `redis`: `redis:7-alpine`, no volume (in-memory cache), not exposed on the host
+- `app_network` (bridge): dedicated named network shared by both services, for fine-grained control over local networking resources
+
 ## Project Structure
 
 ```
@@ -156,6 +169,7 @@ docker run --env-file .env -p 8080:8080 weather-api
 │   ├── providers/           # OpenWeatherMap API client
 │   └── services/            # Weather service with circuit breaker
 ├── Dockerfile               # Multi-stage rootless build
+├── docker-compose.yml       # Local stack (API + Redis)
 ├── go.mod                   # Go dependencies
 └── .env.example             # Environment template
 ```
