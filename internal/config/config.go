@@ -48,8 +48,7 @@ func Load() (*Config, error) {
 	}
 
 	// Auth configuration
-	authEnabled := getEnv("AUTH_ENABLED", "true")
-	cfg.AuthEnabled = authEnabled != "false"
+	cfg.AuthEnabled = getEnvBool("AUTH_ENABLED", true)
 
 	if cfg.AuthEnabled {
 		cfg.Auth0Domain = os.Getenv("AUTH0_DOMAIN")
@@ -107,4 +106,20 @@ func getEnvInt(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+// getEnvBool parses a string environment variable as boolean.
+// Returns true for "true", "1", "yes" (case-insensitive).
+// Returns false for "false", "0", "no" (case-insensitive).
+// Returns defaultValue for empty or unrecognized values.
+func getEnvBool(key string, defaultValue bool) bool {
+	value := strings.ToLower(os.Getenv(key))
+	switch value {
+	case "true", "1", "yes":
+		return true
+	case "false", "0", "no":
+		return false
+	default:
+		return defaultValue
+	}
 }
