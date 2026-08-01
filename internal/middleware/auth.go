@@ -2,30 +2,71 @@
 package middleware
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
+
+	"github.com/rs/zerolog/log"
+	"github.com/yourusername/render-weather/internal/background"
 )
 
-// JWKSReadyChecker interface for checking if JWKS is ready
-type JWKSReadyChecker interface {
-	Ready() bool
+// TokenValidator interface for validating JWT tokens
+type TokenValidator interface {
+	Validate(tokenString string) error
 }
 
-// Auth middleware checks if JWKS is ready before allowing requests
-func Auth(jwksManager JWKSReadyChecker, audience string) func(http.Handler) http.Handler {
+// Auth middleware validates JWT Bearer tokens
+func Auth(validator TokenValidator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Check if JWKS is ready
-			if !jwksManager.Ready() {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = fmt.Fprintf(w, `{"error":"service_unavailable","message":"authentication service initializing"}`)
+			// Extract Authorization header
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				unauthorized(w)
 				return
 			}
 
-			// In production, would validate JWT token here
-			// For now, just pass through if JWKS is ready
+			// Check Bearer prefix
+			if !strings.HasPrefix(authHeader, "Bearer ") {
+				unauthorized(w)
+				return
+			}
+
+			// Extract token
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			if token == "" {
+				unauthorized(w)
+				return
+			}
+
+			// Validate token
+			err := validator.Validate(token)
+			if err != nil {
+				if errors.Is(err, background.ErrJWKSNotReady) {
+					serviceUnavailable(w)
+					return
+				}
+				// Log the actual error but don't expose it
+				log.Debug().Err(err).Msg("token validation failed")
+				unauthorized(w)
+				return
+			}
+
+			// Token valid, continue
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func unauthorized(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	_, _ = fmt.Fprint(w, `{"error":"unauthorized"}`)
+}
+
+func serviceUnavailable(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_, _ = fmt.Fprint(w, `{"error":"service_unavailable"}`)
 }
