@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"github.com/yourusername/render-weather/internal/auth"
 	"github.com/yourusername/render-weather/internal/background"
 	"github.com/yourusername/render-weather/internal/cache"
 	"github.com/yourusername/render-weather/internal/config"
@@ -63,19 +64,38 @@ func main() {
 	background.StartCacheLoader(hybridCache)
 	log.Info().Msg("background cache loader started")
 
-	// 7. Create JWKS manager
-	jwksManager := background.NewJWKSManager(cfg.Auth0Domain)
-	log.Info().Str("domain", cfg.Auth0Domain).Msg("JWKS manager initialized")
+	// 7. Setup auth middleware (conditional)
+	var authMiddleware func(http.Handler) http.Handler
 
-	// 8. Start JWKS loader goroutine
-	jwksManager.Start()
-	log.Info().Msg("JWKS loader started")
+	if cfg.AuthEnabled {
+		// Create JWKS manager
+		jwksManager := background.NewJWKSManager(cfg.Auth0Domain)
+		log.Info().Str("domain", cfg.Auth0Domain).Msg("JWKS manager initialized")
 
-	// 9. Create OpenWeatherMap provider
+		// Start JWKS loader goroutine
+		jwksManager.Start()
+		log.Info().Msg("JWKS loader started")
+
+		// Create JWT validator
+		issuer := fmt.Sprintf("https://%s/", cfg.Auth0Domain)
+		validator := auth.NewJWTValidator(jwksManager, issuer, cfg.Auth0Audience)
+		log.Info().Str("issuer", issuer).Str("audience", cfg.Auth0Audience).Msg("JWT validator initialized")
+
+		// Create auth middleware
+		authMiddleware = middleware.Auth(validator)
+	} else {
+		log.Warn().Msg("authentication disabled (AUTH_ENABLED=false)")
+		// Pass-through middleware (no-op)
+		authMiddleware = func(next http.Handler) http.Handler {
+			return next
+		}
+	}
+
+	// 8. Create OpenWeatherMap provider
 	owmProvider := providers.NewOpenWeatherMapProvider(cfg.OpenWeatherAPIKey, 5*time.Second)
 	log.Info().Msg("OpenWeatherMap provider initialized")
 
-	// 10. Create weather service with circuit breaker
+	// 9. Create weather service with circuit breaker
 	weatherService := services.NewWeatherService(
 		owmProvider,
 		hybridCache,
@@ -86,18 +106,18 @@ func main() {
 	)
 	log.Info().Msg("weather service initialized with circuit breaker")
 
-	// 11. Setup Chi router with middleware
+	// 10. Setup Chi router with middleware
 	router := chi.NewRouter()
 	router.Use(middleware.Recovery())
 	router.Use(middleware.Logging())
 	router.Use(middleware.CORS(cfg.AllowedOrigins))
 
-	// 12. Register public routes (no auth)
+	// 11. Register public routes (no auth)
 	router.Get("/health", handlers.HealthHandler())
 
-	// 13. Register protected routes (with auth)
+	// 12. Register protected routes (with auth)
 	router.Group(func(r chi.Router) {
-		r.Use(middleware.Auth(jwksManager, cfg.Auth0Audience))
+		r.Use(authMiddleware)
 		r.Get("/weather/{city}", handlers.WeatherHandler(weatherService))
 		r.Get("/api/v1/weather/{city}", handlers.WeatherHandler(weatherService))
 	})

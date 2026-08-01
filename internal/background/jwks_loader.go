@@ -3,7 +3,8 @@ package background
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/rsa"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,17 +12,26 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/rs/zerolog/log"
 )
 
-// JSONWebKeySet represents JWKS structure
-type JSONWebKeySet struct {
-	Keys []json.RawMessage `json:"keys"`
+// Errors for JWKS operations
+var (
+	ErrJWKSNotReady = errors.New("JWKS not loaded yet")
+	ErrKeyNotFound  = errors.New("key not found for kid")
+)
+
+// KeyProvider interface for retrieving signing keys
+// Allows mocking JWKSManager in validator tests
+type KeyProvider interface {
+	GetKey(kid string) (*rsa.PublicKey, error)
+	Ready() bool
 }
 
 type JWKSManager struct {
 	auth0Domain string
-	jwks        *JSONWebKeySet
+	keys        map[string]*rsa.PublicKey
 	mu          sync.RWMutex
 	ready       bool
 	httpClient  *http.Client
@@ -30,6 +40,7 @@ type JWKSManager struct {
 func NewJWKSManager(auth0Domain string) *JWKSManager {
 	return &JWKSManager{
 		auth0Domain: auth0Domain,
+		keys:        make(map[string]*rsa.PublicKey),
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
@@ -91,42 +102,65 @@ func (m *JWKSManager) fetchJWKS() error {
 	}
 	url := fmt.Sprintf("%s/.well-known/jwks.json", domain)
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	ctx := context.Background()
+
+	// Fetch and parse JWKS using jwx library
+	set, err := jwk.Fetch(ctx, url, jwk.WithHTTPClient(m.httpClient))
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return fmt.Errorf("fetch jwks: %w", err)
 	}
 
-	resp, err := m.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
+	// Parse keys and store by kid
+	keys := make(map[string]*rsa.PublicKey)
+	for i := 0; i < set.Len(); i++ {
+		key, ok := set.Key(i)
+		if !ok {
+			continue
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
-	}
+		// Skip non-signing keys or non-RS256
+		use, _ := key.KeyUsage()
+		if use != "sig" {
+			continue
+		}
+		alg, _ := key.Algorithm()
+		if algStr := alg.String(); algStr != "" && algStr != "RS256" {
+			continue
+		}
 
-	var jwks JSONWebKeySet
-	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
-		return fmt.Errorf("decode jwks: %w", err)
+		kid, _ := key.KeyID()
+
+		// Extract RSA public key
+		var rsaKey rsa.PublicKey
+		if err := jwk.Export(key, &rsaKey); err != nil {
+			log.Warn().Err(err).Str("kid", kid).Msg("failed to export JWK to RSA, skipping")
+			continue
+		}
+		keys[kid] = &rsaKey
 	}
 
 	m.mu.Lock()
-	m.jwks = &jwks
+	m.keys = keys
 	m.mu.Unlock()
 
 	return nil
 }
 
-func (m *JWKSManager) GetJWKS() (*JSONWebKeySet, error) {
+// GetKey returns the RSA public key for the given key ID
+func (m *JWKSManager) GetKey(kid string) (*rsa.PublicKey, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if m.jwks == nil {
-		return nil, fmt.Errorf("JWKS not loaded yet")
+	if !m.ready {
+		return nil, ErrJWKSNotReady
 	}
 
-	return m.jwks, nil
+	key, exists := m.keys[kid]
+	if !exists {
+		return nil, ErrKeyNotFound
+	}
+
+	return key, nil
 }
 
 func (m *JWKSManager) IsReady() bool {

@@ -38,6 +38,7 @@ OPENWEATHER_API_KEY=your_api_key_here
 AUTH0_DOMAIN=https://your-tenant.auth0.com
 AUTH0_AUDIENCE=https://your-api-audience
 ALLOWED_ORIGINS=https://example.com,https://app.example.com
+AUTH_ENABLED=true  # Set to false to disable authentication (dev only)
 ```
 
 ### 2. Start Redis
@@ -96,6 +97,57 @@ Response:
 - `429` - Rate limited
 - `503` - Service unavailable (circuit breaker open or JWKS not ready)
 - `500` - Internal error
+
+## Authentication
+
+The API uses JWT Bearer tokens for authentication (OAuth 2.0 client_credentials flow).
+
+### Configuration
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `AUTH_ENABLED` | No | `true` | Enable/disable authentication |
+| `AUTH0_DOMAIN` | If auth enabled | - | OAuth provider domain (e.g., `tenant.eu.auth0.com`) |
+| `AUTH0_AUDIENCE` | If auth enabled | - | Expected token audience |
+
+### Token Validation
+
+When enabled, the middleware validates:
+- **Signature** (RS256) against JWKS public keys
+- **Issuer** (`iss`) matches `https://{AUTH0_DOMAIN}/`
+- **Audience** (`aud`) contains the expected value
+- **Expiration** (`exp`) is in the future
+
+### Disabling Authentication (Development)
+
+Set `AUTH_ENABLED=false` to bypass authentication entirely:
+
+```bash
+AUTH_ENABLED=false go run cmd/api/main.go
+```
+
+> **Warning:** Never disable authentication in production.
+
+### Error Responses
+
+| Status | Meaning |
+|--------|---------|
+| 401 Unauthorized | Missing or invalid token |
+| 503 Service Unavailable | JWKS not loaded yet (retry later) |
+
+### Usage Example
+
+```bash
+# Get a token from your OAuth provider (client_credentials flow)
+TOKEN=$(curl -s --request POST \
+  --url "https://${AUTH0_DOMAIN}/oauth/token" \
+  --header 'content-type: application/json' \
+  --data "{\"client_id\":\"${CLIENT_ID}\",\"client_secret\":\"${CLIENT_SECRET}\",\"audience\":\"${AUTH0_AUDIENCE}\",\"grant_type\":\"client_credentials\"}" \
+  | jq -r '.access_token')
+
+# Call the API with the token
+curl -H "Authorization: Bearer ${TOKEN}" http://localhost:8080/weather/paris
+```
 
 ## Testing
 

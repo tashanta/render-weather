@@ -13,7 +13,8 @@ type Config struct {
 	Port string
 	Env  string
 
-	// Auth0
+	// Auth
+	AuthEnabled   bool
 	Auth0Domain   string
 	Auth0Audience string
 
@@ -46,15 +47,20 @@ func Load() (*Config, error) {
 		LogLevel: getEnv("LOG_LEVEL", "info"),
 	}
 
-	// Required variables
-	cfg.Auth0Domain = os.Getenv("AUTH0_DOMAIN")
-	if cfg.Auth0Domain == "" {
-		return nil, fmt.Errorf("AUTH0_DOMAIN is required")
-	}
+	// Auth configuration
+	authEnabled := getEnv("AUTH_ENABLED", "true")
+	cfg.AuthEnabled = authEnabled != "false"
 
-	cfg.Auth0Audience = os.Getenv("AUTH0_AUDIENCE")
-	if cfg.Auth0Audience == "" {
-		return nil, fmt.Errorf("AUTH0_AUDIENCE is required")
+	if cfg.AuthEnabled {
+		cfg.Auth0Domain = os.Getenv("AUTH0_DOMAIN")
+		if cfg.Auth0Domain == "" {
+			return nil, fmt.Errorf("AUTH0_DOMAIN is required when AUTH_ENABLED=true")
+		}
+
+		cfg.Auth0Audience = os.Getenv("AUTH0_AUDIENCE")
+		if cfg.Auth0Audience == "" {
+			return nil, fmt.Errorf("AUTH0_AUDIENCE is required when AUTH_ENABLED=true")
+		}
 	}
 
 	cfg.OpenWeatherAPIKey = os.Getenv("OPENWEATHER_API_KEY")
