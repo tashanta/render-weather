@@ -4,9 +4,11 @@ package background
 import (
 	"context"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"strings"
 	"sync"
@@ -29,14 +31,24 @@ type KeyProvider interface {
 	Ready() bool
 }
 
+// JWK represents a JSON Web Key
+type JWK struct {
+	Kty string `json:"kty"`
+	Kid string `json:"kid"`
+	Use string `json:"use"`
+	Alg string `json:"alg"`
+	N   string `json:"n"`
+	E   string `json:"e"`
+}
+
 // JSONWebKeySet represents JWKS structure
 type JSONWebKeySet struct {
-	Keys []json.RawMessage `json:"keys"`
+	Keys []JWK `json:"keys"`
 }
 
 type JWKSManager struct {
 	auth0Domain string
-	jwks        *JSONWebKeySet
+	keys        map[string]*rsa.PublicKey
 	mu          sync.RWMutex
 	ready       bool
 	httpClient  *http.Client
@@ -45,6 +57,7 @@ type JWKSManager struct {
 func NewJWKSManager(auth0Domain string) *JWKSManager {
 	return &JWKSManager{
 		auth0Domain: auth0Domain,
+		keys:        make(map[string]*rsa.PublicKey),
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
@@ -126,22 +139,69 @@ func (m *JWKSManager) fetchJWKS() error {
 		return fmt.Errorf("decode jwks: %w", err)
 	}
 
+	// Parse keys and store by kid
+	keys := make(map[string]*rsa.PublicKey)
+	for _, jwk := range jwks.Keys {
+		if jwk.Use != "sig" || jwk.Alg != "RS256" {
+			continue // Skip non-signing keys
+		}
+		pubKey, err := parseRSAPublicKey(jwk)
+		if err != nil {
+			log.Warn().Err(err).Str("kid", jwk.Kid).Msg("failed to parse JWK, skipping")
+			continue
+		}
+		keys[jwk.Kid] = pubKey
+	}
+
 	m.mu.Lock()
-	m.jwks = &jwks
+	m.keys = keys
 	m.mu.Unlock()
 
 	return nil
 }
 
-func (m *JWKSManager) GetJWKS() (*JSONWebKeySet, error) {
+// parseRSAPublicKey converts JWK to *rsa.PublicKey
+func parseRSAPublicKey(jwk JWK) (*rsa.PublicKey, error) {
+	if jwk.Kty != "RSA" {
+		return nil, fmt.Errorf("unsupported key type: %s", jwk.Kty)
+	}
+
+	// Decode modulus (n)
+	nBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
+	if err != nil {
+		return nil, fmt.Errorf("decode modulus: %w", err)
+	}
+	n := new(big.Int).SetBytes(nBytes)
+
+	// Decode exponent (e)
+	eBytes, err := base64.RawURLEncoding.DecodeString(jwk.E)
+	if err != nil {
+		return nil, fmt.Errorf("decode exponent: %w", err)
+	}
+	// Convert exponent bytes to int
+	var e int
+	for _, b := range eBytes {
+		e = e<<8 + int(b)
+	}
+
+	return &rsa.PublicKey{N: n, E: e}, nil
+}
+
+// GetKey returns the RSA public key for the given key ID
+func (m *JWKSManager) GetKey(kid string) (*rsa.PublicKey, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if m.jwks == nil {
-		return nil, fmt.Errorf("JWKS not loaded yet")
+	if !m.ready {
+		return nil, ErrJWKSNotReady
 	}
 
-	return m.jwks, nil
+	key, exists := m.keys[kid]
+	if !exists {
+		return nil, ErrKeyNotFound
+	}
+
+	return key, nil
 }
 
 func (m *JWKSManager) IsReady() bool {
