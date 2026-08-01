@@ -228,11 +228,117 @@ docker compose up      # builds and starts the API (8080) + Redis
 
 ## Architecture
 
-1. **Chi Router** with middleware stack (Recovery → Logging → CORS → Auth)
+1. **Chi Router** with middleware stack (Recovery → Logging → CORS → Prometheus → Auth)
 2. **Weather Service** wraps provider with circuit breaker
 3. **Hybrid Cache** checks L1 (memory), then L2 (Redis)
 4. **Background Loaders** preload cache and refresh JWKS keys
 5. **OpenWeatherMap Provider** with exponential backoff retry
+
+## Monitoring
+
+### Logs (stdout)
+
+All requests are logged to stdout in structured JSON format via zerolog. Each log entry contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request_id` | string | UUID unique per request (for debugging/tracing) |
+| `method` | string | HTTP method (GET, POST, etc.) |
+| `path` | string | Request path (e.g., `/weather/Paris`) |
+| `status` | int | HTTP status code (200, 404, 500, etc.) |
+| `duration` | duration | Response time (e.g., `12.345ms`) |
+| `time` | timestamp | Request timestamp |
+
+Example log output:
+```json
+{"level":"info","request_id":"550e8400-e29b-41d4-a716-446655440000","method":"GET","path":"/weather/Paris","status":200,"duration":45.123,"time":"2026-08-01T12:00:00Z","message":"request completed"}
+```
+
+**Use cases:**
+- Filter by `status >= 500` for error alerting
+- Aggregate `duration` by `path` for latency analysis
+- Correlate issues using `request_id` across services
+- Parse with `jq` for quick analysis: `cat logs.json | jq 'select(.status >= 400)'`
+
+### Metrics Endpoint (`/metrics`)
+
+Prometheus-compatible metrics are exposed on `GET /metrics` (public, no auth).
+
+#### HTTP Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `http_requests_total` | Counter | `method`, `path`, `code` | Total HTTP requests |
+| `http_request_duration_seconds` | Histogram | `method`, `path` | Request latency distribution |
+
+**Path normalization:** Dynamic segments are normalized to avoid cardinality explosion:
+- `/weather/Paris` → `/weather/{city}`
+- `/api/v1/weather/London` → `/api/v1/weather/{city}`
+
+#### Go Runtime Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `go_goroutines` | Gauge | Number of active goroutines |
+| `go_threads` | Gauge | Number of OS threads |
+| `go_memstats_alloc_bytes` | Gauge | Bytes allocated (heap) |
+| `go_memstats_heap_inuse_bytes` | Gauge | Heap memory in use |
+| `go_gc_duration_seconds` | Summary | GC pause duration |
+| `process_resident_memory_bytes` | Gauge | Process memory (RSS) |
+| `process_cpu_seconds_total` | Counter | CPU time consumed |
+
+#### Quick Dashboard (Poor Man's Solution)
+
+No Prometheus/Grafana? Poll metrics and write to a file for simple analysis:
+
+```bash
+# Poll every 15s and append to file
+while true; do
+  echo "=== $(date -Iseconds) ===" >> metrics.log
+  curl -s http://localhost:8080/metrics | grep -E "^(http_|go_goroutines|go_memstats_alloc)" >> metrics.log
+  sleep 15
+done
+```
+
+Extract key metrics with grep/awk:
+```bash
+# Request count by endpoint
+grep http_requests_total metrics.log | tail -20
+
+# Current goroutine count trend
+grep go_goroutines metrics.log | awk '{print $2}'
+
+# Memory usage over time
+grep go_memstats_alloc_bytes metrics.log | awk '{print $2/1024/1024 " MB"}'
+```
+
+#### Prometheus Integration
+
+For production, configure Prometheus to scrape the `/metrics` endpoint:
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: 'weather-api'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['localhost:8080']
+```
+
+Example PromQL queries:
+```promql
+# Request rate (requests/second)
+rate(http_requests_total[5m])
+
+# 95th percentile latency
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+
+# Error rate (4xx + 5xx)
+sum(rate(http_requests_total{code=~"4..|5.."}[5m])) / sum(rate(http_requests_total[5m]))
+
+# Memory growth
+increase(go_memstats_alloc_bytes[1h])
+```
 
 ## Deployment (Render.com)
 
