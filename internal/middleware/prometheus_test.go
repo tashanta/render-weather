@@ -26,7 +26,7 @@ func TestPrometheusMiddleware_IncrementsCounter(t *testing.T) {
 	})
 
 	// Make request
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
@@ -68,7 +68,7 @@ func TestPrometheusMiddleware_RecordsDuration(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("GET", "/slow", nil)
+	req := httptest.NewRequest(http.MethodGet, "/slow", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
@@ -102,7 +102,7 @@ func TestPrometheusMiddleware_NormalizesPath(t *testing.T) {
 
 	// Make requests with different cities
 	for _, city := range []string{"Paris", "London", "Tokyo"} {
-		req := httptest.NewRequest("GET", "/weather/"+city, nil)
+		req := httptest.NewRequest(http.MethodGet, "/weather/"+city, nil)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 	}
@@ -146,11 +146,11 @@ func TestPrometheusMiddleware_LabelsErrorResponses(t *testing.T) {
 	})
 
 	// GET /error -> 500
-	req1 := httptest.NewRequest("GET", "/error", nil)
+	req1 := httptest.NewRequest(http.MethodGet, "/error", nil)
 	r.ServeHTTP(httptest.NewRecorder(), req1)
 
 	// POST /created -> 201
-	req2 := httptest.NewRequest("POST", "/created", nil)
+	req2 := httptest.NewRequest(http.MethodPost, "/created", nil)
 	r.ServeHTTP(httptest.NewRecorder(), req2)
 
 	metrics, err := registry.Gather()
