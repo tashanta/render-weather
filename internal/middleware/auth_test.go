@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
+
 	"github.com/yourusername/render-weather/internal/background"
 )
 

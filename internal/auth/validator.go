@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/golang-jwt/jwt/v5"
+
 	"github.com/yourusername/render-weather/internal/background"
 )
 
@@ -59,7 +60,6 @@ func (v *JWTValidator) Validate(tokenString string) error {
 		jwt.WithAudience(v.audience),
 		jwt.WithExpirationRequired(),
 	)
-
 	if err != nil {
 		return v.mapError(err)
 	}
@@ -86,26 +86,26 @@ func (v *JWTValidator) mapError(err error) error {
 
 	// Check for jwt library errors
 	if errors.Is(err, jwt.ErrTokenMalformed) {
-		return fmt.Errorf("%w: %v", ErrTokenMalformed, err)
+		return fmt.Errorf("%w: %w", ErrTokenMalformed, err)
 	}
 	if errors.Is(err, jwt.ErrTokenExpired) {
-		return fmt.Errorf("%w: %v", ErrTokenExpired, err)
+		return fmt.Errorf("%w: %w", ErrTokenExpired, err)
 	}
 	if errors.Is(err, jwt.ErrTokenSignatureInvalid) {
-		return fmt.Errorf("%w: %v", ErrInvalidSignature, err)
+		return fmt.Errorf("%w: %w", ErrInvalidSignature, err)
 	}
 	if errors.Is(err, jwt.ErrTokenInvalidIssuer) {
-		return fmt.Errorf("%w: %v", ErrInvalidIssuer, err)
+		return fmt.Errorf("%w: %w", ErrInvalidIssuer, err)
 	}
 	if errors.Is(err, jwt.ErrTokenInvalidAudience) {
-		return fmt.Errorf("%w: %v", ErrInvalidAudience, err)
+		return fmt.Errorf("%w: %w", ErrInvalidAudience, err)
 	}
 
 	// For signature validation failures not caught above
 	if errors.Is(err, rsa.ErrVerification) {
-		return fmt.Errorf("%w: %v", ErrInvalidSignature, err)
+		return fmt.Errorf("%w: %w", ErrInvalidSignature, err)
 	}
 
 	// Default: treat as malformed
-	return fmt.Errorf("%w: %v", ErrTokenMalformed, err)
+	return fmt.Errorf("%w: %w", ErrTokenMalformed, err)
 }

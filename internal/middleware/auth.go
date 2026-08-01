@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog/log"
+
 	"github.com/yourusername/render-weather/internal/background"
 )
 
