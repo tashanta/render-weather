@@ -25,7 +25,7 @@ func Recovery() func(http.Handler) http.Handler {
 
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusInternalServerError)
-					fmt.Fprintf(w, `{"error":"internal_error"}`)
+					_, _ = fmt.Fprintf(w, `{"error":"internal_error"}`)
 				}
 			}()
 

@@ -16,7 +16,8 @@ func TestLogging(t *testing.T) {
 		router := chi.NewRouter()
 		router.Use(Logging())
 		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
-			capturedRequestID = r.Context().Value("request_id").(string)
+			val := r.Context().Value(requestIDKey)
+			capturedRequestID, _ = val.(string)
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"status":"ok"}`))
 		})

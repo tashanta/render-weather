@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog/log"
+
 	"github.com/yourusername/render-weather/internal/models"
 	"github.com/yourusername/render-weather/internal/services"
 )
@@ -27,7 +28,7 @@ func WeatherHandler(svc WeatherServiceGetter) http.HandlerFunc {
 		if city == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, `{"error":"invalid_city"}`)
+			_, _ = fmt.Fprintf(w, `{"error":"invalid_city"}`)
 			return
 		}
 
@@ -40,18 +41,18 @@ func WeatherHandler(svc WeatherServiceGetter) http.HandlerFunc {
 			switch {
 			case errors.Is(err, services.ErrCityNotFound):
 				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprintf(w, `{"error":"city_not_found"}`)
+				_, _ = fmt.Fprintf(w, `{"error":"city_not_found"}`)
 			case errors.Is(err, services.ErrRateLimited):
 				w.WriteHeader(http.StatusTooManyRequests)
-				fmt.Fprintf(w, `{"error":"rate_limited"}`)
+				_, _ = fmt.Fprintf(w, `{"error":"rate_limited"}`)
 			case errors.Is(err, services.ErrCircuitBreakerOpen):
 				w.Header().Set("Retry-After", "30")
 				w.WriteHeader(http.StatusServiceUnavailable)
-				fmt.Fprintf(w, `{"error":"service_unavailable"}`)
+				_, _ = fmt.Fprintf(w, `{"error":"service_unavailable"}`)
 			default:
 				log.Error().Err(err).Str("city", city).Msg("unexpected error fetching weather")
 				w.WriteHeader(http.StatusInternalServerError)
-				fmt.Fprintf(w, `{"error":"internal_error"}`)
+				_, _ = fmt.Fprintf(w, `{"error":"internal_error"}`)
 			}
 			return
 		}
@@ -66,6 +67,6 @@ func WeatherHandler(svc WeatherServiceGetter) http.HandlerFunc {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(weather)
+		_ = json.NewEncoder(w).Encode(weather)
 	}
 }

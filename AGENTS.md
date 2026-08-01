@@ -33,6 +33,12 @@ go build -o bin/api cmd/api/main.go  # Local binary
 docker build -t weather-api .        # Docker image
 ```
 
+### Linting
+```bash
+golangci-lint run    # Run linters (.golangci.yml config)
+golangci-lint fmt    # Auto-format (gofumpt + goimports)
+```
+
 ### Running
 ```bash
 go run cmd/api/main.go               # Local development

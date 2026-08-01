@@ -91,7 +91,7 @@ func (m *JWKSManager) fetchJWKS() error {
 	}
 	url := fmt.Sprintf("%s/.well-known/jwks.json", domain)
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -100,7 +100,7 @@ func (m *JWKSManager) fetchJWKS() error {
 	if err != nil {
 		return fmt.Errorf("http request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status: %d", resp.StatusCode)

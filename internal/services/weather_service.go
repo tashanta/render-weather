@@ -5,11 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/sony/gobreaker"
+
 	"github.com/yourusername/render-weather/internal/models"
 	"github.com/yourusername/render-weather/internal/providers"
 )
@@ -48,7 +50,7 @@ func NewWeatherService(
 		Timeout:     openDuration,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
 			failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
-			return counts.ConsecutiveFailures >= uint32(maxFailures) ||
+			return int(counts.ConsecutiveFailures) >= max(0, maxFailures) ||
 				(counts.Requests >= 10 && failureRatio >= 0.6)
 		},
 		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
@@ -83,9 +85,8 @@ func (s *WeatherService) GetWeather(ctx context.Context, city string) (*models.W
 	result, err := s.cb.Execute(func() (interface{}, error) {
 		return s.provider.GetCurrentWeather(ctx, city)
 	})
-
 	if err != nil {
-		if err == gobreaker.ErrOpenState {
+		if errors.Is(err, gobreaker.ErrOpenState) {
 			log.Warn().Str("city", city).Msg("circuit breaker open")
 			return nil, false, ErrCircuitBreakerOpen
 		}
@@ -93,10 +94,10 @@ func (s *WeatherService) GetWeather(ctx context.Context, city string) (*models.W
 		// Check for provider-specific errors
 		var clientErr *providers.ClientError
 		if errors.As(err, &clientErr) {
-			if clientErr.StatusCode == 404 {
+			if clientErr.StatusCode == http.StatusNotFound {
 				return nil, false, ErrCityNotFound
 			}
-			if clientErr.StatusCode == 429 {
+			if clientErr.StatusCode == http.StatusTooManyRequests {
 				return nil, false, ErrRateLimited
 			}
 		}

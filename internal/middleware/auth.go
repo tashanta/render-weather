@@ -19,7 +19,7 @@ func Auth(jwksManager JWKSReadyChecker, audience string) func(http.Handler) http
 			if !jwksManager.Ready() {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
-				fmt.Fprintf(w, `{"error":"service_unavailable","message":"authentication service initializing"}`)
+				_, _ = fmt.Fprintf(w, `{"error":"service_unavailable","message":"authentication service initializing"}`)
 				return
 			}
 
