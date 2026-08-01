@@ -4,17 +4,15 @@ package background
 import (
 	"context"
 	"crypto/rsa"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/rs/zerolog/log"
 )
 
@@ -29,21 +27,6 @@ var (
 type KeyProvider interface {
 	GetKey(kid string) (*rsa.PublicKey, error)
 	Ready() bool
-}
-
-// JWK represents a JSON Web Key
-type JWK struct {
-	Kty string `json:"kty"`
-	Kid string `json:"kid"`
-	Use string `json:"use"`
-	Alg string `json:"alg"`
-	N   string `json:"n"`
-	E   string `json:"e"`
-}
-
-// JSONWebKeySet represents JWKS structure
-type JSONWebKeySet struct {
-	Keys []JWK `json:"keys"`
 }
 
 type JWKSManager struct {
@@ -119,38 +102,41 @@ func (m *JWKSManager) fetchJWKS() error {
 	}
 	url := fmt.Sprintf("%s/.well-known/jwks.json", domain)
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	ctx := context.Background()
+
+	// Fetch and parse JWKS using jwx library
+	set, err := jwk.Fetch(ctx, url, jwk.WithHTTPClient(m.httpClient))
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-
-	resp, err := m.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
-	}
-
-	var jwks JSONWebKeySet
-	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
-		return fmt.Errorf("decode jwks: %w", err)
+		return fmt.Errorf("fetch jwks: %w", err)
 	}
 
 	// Parse keys and store by kid
 	keys := make(map[string]*rsa.PublicKey)
-	for _, jwk := range jwks.Keys {
-		if jwk.Use != "sig" || jwk.Alg != "RS256" {
-			continue // Skip non-signing keys
-		}
-		pubKey, err := parseRSAPublicKey(jwk)
-		if err != nil {
-			log.Warn().Err(err).Str("kid", jwk.Kid).Msg("failed to parse JWK, skipping")
+	for i := 0; i < set.Len(); i++ {
+		key, ok := set.Key(i)
+		if !ok {
 			continue
 		}
-		keys[jwk.Kid] = pubKey
+
+		// Skip non-signing keys or non-RS256
+		use, _ := key.KeyUsage()
+		if use != "sig" {
+			continue
+		}
+		alg, _ := key.Algorithm()
+		if algStr := alg.String(); algStr != "" && algStr != "RS256" {
+			continue
+		}
+
+		kid, _ := key.KeyID()
+
+		// Extract RSA public key
+		var rsaKey rsa.PublicKey
+		if err := jwk.Export(key, &rsaKey); err != nil {
+			log.Warn().Err(err).Str("kid", kid).Msg("failed to export JWK to RSA, skipping")
+			continue
+		}
+		keys[kid] = &rsaKey
 	}
 
 	m.mu.Lock()
@@ -158,33 +144,6 @@ func (m *JWKSManager) fetchJWKS() error {
 	m.mu.Unlock()
 
 	return nil
-}
-
-// parseRSAPublicKey converts JWK to *rsa.PublicKey
-func parseRSAPublicKey(jwk JWK) (*rsa.PublicKey, error) {
-	if jwk.Kty != "RSA" {
-		return nil, fmt.Errorf("unsupported key type: %s", jwk.Kty)
-	}
-
-	// Decode modulus (n)
-	nBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
-	if err != nil {
-		return nil, fmt.Errorf("decode modulus: %w", err)
-	}
-	n := new(big.Int).SetBytes(nBytes)
-
-	// Decode exponent (e)
-	eBytes, err := base64.RawURLEncoding.DecodeString(jwk.E)
-	if err != nil {
-		return nil, fmt.Errorf("decode exponent: %w", err)
-	}
-	// Convert exponent bytes to int
-	var e int
-	for _, b := range eBytes {
-		e = e<<8 + int(b)
-	}
-
-	return &rsa.PublicKey{N: n, E: e}, nil
 }
 
 // GetKey returns the RSA public key for the given key ID
