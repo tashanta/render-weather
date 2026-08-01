@@ -3,7 +3,9 @@ package background
 
 import (
 	"context"
+	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,6 +15,19 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/rs/zerolog/log"
 )
+
+// Errors for JWKS operations
+var (
+	ErrJWKSNotReady = errors.New("JWKS not loaded yet")
+	ErrKeyNotFound  = errors.New("key not found for kid")
+)
+
+// KeyProvider interface for retrieving signing keys
+// Allows mocking JWKSManager in validator tests
+type KeyProvider interface {
+	GetKey(kid string) (*rsa.PublicKey, error)
+	Ready() bool
+}
 
 // JSONWebKeySet represents JWKS structure
 type JSONWebKeySet struct {
