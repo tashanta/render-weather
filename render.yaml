@@ -3,13 +3,14 @@ services:
   - type: redis
     name: render-weather-redis
     plan: free
+    region: frankfurt
     ipAllowList: []
 
   # Web Service API - Plan Hobby
   - type: web
     name: render-weather-api
     runtime: docker
-    plan: starter
+    plan: free
     region: frankfurt
     branch: main
     dockerfilePath: ./Dockerfile
