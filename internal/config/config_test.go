@@ -127,3 +127,47 @@ func TestLoad_AuthDisabled_NoAuth0VarsRequired(t *testing.T) {
 	assert.Empty(t, cfg.Auth0Domain)
 	assert.Empty(t, cfg.Auth0Audience)
 }
+
+func TestGetEnvBool(t *testing.T) {
+	tests := []struct {
+		name         string
+		envValue     string
+		defaultValue bool
+		expected     bool
+	}{
+		// True values
+		{"true lowercase", "true", false, true},
+		{"TRUE uppercase", "TRUE", false, true},
+		{"True mixed", "True", false, true},
+		{"1", "1", false, true},
+		{"yes", "yes", false, true},
+		{"YES uppercase", "YES", false, true},
+
+		// False values
+		{"false lowercase", "false", true, false},
+		{"FALSE uppercase", "FALSE", true, false},
+		{"False mixed", "False", true, false},
+		{"0", "0", true, false},
+		{"no", "no", true, false},
+		{"NO uppercase", "NO", true, false},
+
+		// Default values (unrecognized or empty)
+		{"empty uses default true", "", true, true},
+		{"empty uses default false", "", false, false},
+		{"unrecognized uses default true", "maybe", true, true},
+		{"unrecognized uses default false", "maybe", false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key := "TEST_BOOL_VAR"
+			if tt.envValue != "" {
+				t.Setenv(key, tt.envValue)
+			}
+
+			result := getEnvBool(key, tt.defaultValue)
+
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

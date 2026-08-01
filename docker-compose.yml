@@ -8,7 +8,23 @@ services:
     env_file:
       - .env
     environment:
-      REDIS_URL: redis://redis:6379
+      # All values are strings (compatible with Render.com)
+      PORT: "8080"
+      ENV: "development"
+      REDIS_URL: "redis://redis:6379"
+      # Auth (override in .env for real values)
+      AUTH_ENABLED: "true"
+      # Cache configuration
+      CACHE_TTL: "3600"
+      CACHE_L1_MAX_SIZE: "1000"
+      # Circuit Breaker configuration
+      CB_TIMEOUT: "1000"
+      CB_MAX_FAILURES: "5"
+      CB_OPEN_DURATION: "30"
+      # Logging
+      LOG_LEVEL: "debug"
+      # CORS (empty for local dev)
+      ALLOWED_ORIGINS: ""
     depends_on:
       redis:
         condition: service_healthy
