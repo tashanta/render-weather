@@ -11,9 +11,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -44,12 +41,6 @@ func main() {
 		Str("port", cfg.Port).
 		Str("redis", cfg.RedisURL).
 		Msg("configuration loaded")
-
-	// 2b. Create Prometheus registry with Go collectors
-	promRegistry := prometheus.NewRegistry()
-	promRegistry.MustRegister(collectors.NewGoCollector())
-	promRegistry.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-	log.Info().Msg("Prometheus registry initialized with Go collectors")
 
 	// 3. Create L1 memory cache
 	memCache := cache.NewMemoryCache(1000)
@@ -120,13 +111,9 @@ func main() {
 	router.Use(middleware.Recovery())
 	router.Use(middleware.Logging())
 	router.Use(middleware.CORS(cfg.AllowedOrigins))
-	router.Use(middleware.Prometheus(promRegistry))
 
 	// 11. Register public routes (no auth)
 	router.Get("/health", handlers.HealthHandler())
-	router.Handle("/metrics", promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{
-		Registry: promRegistry,
-	}))
 
 	// 12. Register protected routes (with auth)
 	router.Group(func(r chi.Router) {
@@ -135,7 +122,7 @@ func main() {
 		r.Get("/api/v1/weather/{city}", handlers.WeatherHandler(weatherService))
 	})
 
-	log.Info().Msg("routes registered: /health, /metrics, /weather/{city}, /api/v1/weather/{city}")
+	log.Info().Msg("routes registered: /health, /weather/{city}, /api/v1/weather/{city}")
 
 	// 13. Start HTTP server
 	addr := fmt.Sprintf(":%s", cfg.Port)
