@@ -62,7 +62,7 @@ docker run --env-file .env -p 8080:8080 weather-api  # Docker
 - Provider errors → Service sentinel errors → Handler HTTP status codes
 - Circuit breaker open → 503 Service Unavailable
 - JWKS not ready → 503 Service Unavailable
-- Rate limit → 429 Too Many Requests
+- Rate limit exceeded → 429 Too Many Requests (global limit: 60 req/min)
 - City not found → 404 Not Found
 - Panics → 500 Internal Server Error (recovered, logged with stack trace)
 

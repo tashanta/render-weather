@@ -39,6 +39,8 @@ AUTH0_DOMAIN=https://your-tenant.auth0.com
 AUTH0_AUDIENCE=https://your-api-audience
 ALLOWED_ORIGINS=https://example.com,https://app.example.com
 AUTH_ENABLED=true  # Set to false to disable authentication (dev only)
+RATE_LIMIT_CAPACITY=60           # Token bucket capacity (requests per minute)
+RATE_LIMIT_REFILL_RATE=1s        # Refill rate (1 token per second)
 ```
 
 ### 2. Start Redis
@@ -86,6 +88,20 @@ Response:
 }
 ```
 
+**Rate Limit Response (429):**
+```http
+HTTP/1.1 429 Too Many Requests
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1722600060
+Retry-After: 15
+
+{
+  "error": "rate_limit_exceeded",
+  "message": "Too many requests. Please try again later."
+}
+```
+
 **Headers:**
 - `Cache-Control: public, max-age=3600`
 - `X-Cache-Hit: true/false`
@@ -94,7 +110,7 @@ Response:
 - `200` - Success
 - `400` - Invalid city parameter
 - `404` - City not found
-- `429` - Rate limited
+- `429` - Rate limited (60 requests/minute global limit)
 - `503` - Service unavailable (circuit breaker open or JWKS not ready)
 - `500` - Internal error
 
