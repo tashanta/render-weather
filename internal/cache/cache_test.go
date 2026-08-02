@@ -153,3 +153,9 @@ func (m *mockFailingRedis) Ping(ctx context.Context) *redis.StatusCmd {
 	cmd.SetErr(redis.ErrClosed)
 	return cmd
 }
+
+func (m *mockFailingRedis) Eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd {
+	cmd := redis.NewCmd(ctx)
+	cmd.SetErr(redis.ErrClosed)
+	return cmd
+}
