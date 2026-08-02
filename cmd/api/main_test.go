@@ -68,7 +68,7 @@ func TestRateLimiterIntegration(t *testing.T) {
 	router.Use(middleware.Logging())
 	router.Use(middleware.CORS([]string{"*"}))
 	router.Use(middleware.Prometheus(prometheus.NewRegistry()))
-	router.Use(middleware.RateLimit(rateLimiter)) // Rate limit BEFORE auth
+	router.Use(middleware.RateLimit(rateLimiter, cfg.RateLimitCapacity)) // Rate limit BEFORE auth
 
 	// 5. Register protected route (no auth for test)
 	router.Get("/weather/{city}", handlers.WeatherHandler(weatherService))

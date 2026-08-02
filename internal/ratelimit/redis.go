@@ -81,10 +81,18 @@ func (r *RedisRateLimiter) Allow(ctx context.Context) (bool, int, int64, error) 
 	}
 
 	// Parse result [allowed, remaining, resetAt]
-	results := result.([]interface{})
-	allowed := results[0].(int64) == 1
-	remaining := int(results[1].(int64))
-	resetAt := results[2].(int64)
+	results, ok := result.([]interface{})
+	if !ok || len(results) != 3 {
+		return false, 0, 0, fmt.Errorf("redis eval returned unexpected format: %v", result)
+	}
 
-	return allowed, remaining, resetAt, nil
+	allowed, ok1 := results[0].(int64)
+	remaining, ok2 := results[1].(int64)
+	resetAt, ok3 := results[2].(int64)
+
+	if !ok1 || !ok2 || !ok3 {
+		return false, 0, 0, fmt.Errorf("redis eval type assertion failed")
+	}
+
+	return allowed == 1, int(remaining), resetAt, nil
 }

@@ -149,7 +149,7 @@ func main() {
 	router.Use(middleware.Logging())
 	router.Use(middleware.CORS(cfg.AllowedOrigins))
 	router.Use(middleware.Prometheus(promRegistry))
-	router.Use(middleware.RateLimit(rateLimiter)) // Rate limit before auth
+	router.Use(middleware.RateLimit(rateLimiter, cfg.RateLimitCapacity)) // Rate limit before auth
 
 	// 11. Register public routes (no auth)
 	router.Get("/health", handlers.HealthHandler())

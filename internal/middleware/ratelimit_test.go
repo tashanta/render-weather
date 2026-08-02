@@ -31,7 +31,7 @@ func TestRateLimitMiddleware_Allowed(t *testing.T) {
 		},
 	}
 
-	handler := middleware.RateLimit(limiter)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := middleware.RateLimit(limiter, 60)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	}))
@@ -55,7 +55,7 @@ func TestRateLimitMiddleware_Exceeded(t *testing.T) {
 		},
 	}
 
-	handler := middleware.RateLimit(limiter)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := middleware.RateLimit(limiter, 60)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not be called when rate limited")
 	}))
 
@@ -79,7 +79,7 @@ func TestRateLimitMiddleware_FailOpen(t *testing.T) {
 		},
 	}
 
-	handler := middleware.RateLimit(limiter)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := middleware.RateLimit(limiter, 60)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	}))

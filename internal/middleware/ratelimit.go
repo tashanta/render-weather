@@ -12,7 +12,8 @@ import (
 )
 
 // RateLimit returns a middleware that enforces rate limiting.
-func RateLimit(limiter ratelimit.RateLimiter) func(http.Handler) http.Handler {
+func RateLimit(limiter ratelimit.RateLimiter, capacity int) func(http.Handler) http.Handler {
+	limitStr := strconv.Itoa(capacity)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -20,7 +21,7 @@ func RateLimit(limiter ratelimit.RateLimiter) func(http.Handler) http.Handler {
 			allowed, remaining, resetAt, err := limiter.Allow(ctx)
 
 			// Always add rate limit headers (RFC 6585 standard)
-			w.Header().Set("X-RateLimit-Limit", "60")
+			w.Header().Set("X-RateLimit-Limit", limitStr)
 			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
 			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetAt, 10))
 
