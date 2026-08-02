@@ -88,8 +88,8 @@ func (r *RedisRateLimiter) Allow(ctx context.Context) (bool, int, int64, error) 
 	result, err := r.cache.Client().Eval(ctx, r.script,
 		[]string{"ratelimit:global"},
 		r.capacity,
-		refillRateNs,  // int64 nanoseconds
-		nowNs,         // int64 nanoseconds
+		refillRateNs, // int64 nanoseconds
+		nowNs,        // int64 nanoseconds
 	).Result()
 	if err != nil {
 		return false, 0, 0, fmt.Errorf("redis eval failed: %w", err)
