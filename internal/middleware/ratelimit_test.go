@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/yourusername/render-weather/internal/middleware"
 	"github.com/yourusername/render-weather/internal/ratelimit"
 )

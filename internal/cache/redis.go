@@ -75,4 +75,3 @@ func (c *RedisCache) Keys(ctx context.Context, pattern string) ([]string, error)
 func (c *RedisCache) Client() redisClient {
 	return c.client
 }
-

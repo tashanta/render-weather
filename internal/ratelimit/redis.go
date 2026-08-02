@@ -76,7 +76,6 @@ func (r *RedisRateLimiter) Allow(ctx context.Context) (bool, int, int64, error) 
 		refillRatePerSec,
 		now,
 	).Result()
-
 	if err != nil {
 		return false, 0, 0, fmt.Errorf("redis eval failed: %w", err)
 	}

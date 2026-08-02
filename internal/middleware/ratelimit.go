@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+
 	"github.com/yourusername/render-weather/internal/ratelimit"
 )
 
@@ -44,7 +45,7 @@ func RateLimit(limiter ratelimit.RateLimiter) func(http.Handler) http.Handler {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
 
-				json.NewEncoder(w).Encode(map[string]string{
+				_ = json.NewEncoder(w).Encode(map[string]string{
 					"error":   "rate_limit_exceeded",
 					"message": "Too many requests. Please try again later.",
 				})

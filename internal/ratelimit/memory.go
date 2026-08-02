@@ -9,11 +9,11 @@ import (
 
 // MemoryRateLimiter implements a token bucket rate limiter in memory.
 type MemoryRateLimiter struct {
-	capacity     int
-	refillRate   time.Duration
-	tokens       float64
-	lastRefill   time.Time
-	mu           sync.Mutex
+	capacity   int
+	refillRate time.Duration
+	tokens     float64
+	lastRefill time.Time
+	mu         sync.Mutex
 }
 
 // NewMemoryRateLimiter creates a new in-memory rate limiter.
@@ -48,7 +48,7 @@ func (m *MemoryRateLimiter) Allow(ctx context.Context) (bool, int, int64, error)
 		tokensNeeded := float64(m.capacity) - m.tokens
 		waitDuration := time.Duration(tokensNeeded * m.refillRate.Seconds() * float64(time.Second))
 		resetAt := now.Add(waitDuration).Unix()
-		
+
 		// Ensure resetAt is always in the future
 		if resetAt <= now.Unix() {
 			resetAt = now.Unix() + 1
@@ -61,7 +61,7 @@ func (m *MemoryRateLimiter) Allow(ctx context.Context) (bool, int, int64, error)
 	tokensNeeded := 1.0 - m.tokens
 	waitDuration := time.Duration(tokensNeeded * m.refillRate.Seconds() * float64(time.Second))
 	resetAt := now.Add(waitDuration).Unix()
-	
+
 	// Ensure resetAt is always in the future
 	if resetAt <= now.Unix() {
 		resetAt = now.Unix() + 1
