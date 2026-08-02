@@ -10,34 +10,49 @@ import (
 
 const luaScript = `
 -- KEYS[1] = "ratelimit:global"
--- ARGV[1] = capacity (60)
--- ARGV[2] = refill_rate (1 token/sec)
--- ARGV[3] = current_timestamp (Unix seconds)
+-- ARGV[1] = capacity (e.g., 60)
+-- ARGV[2] = refill_rate_ns (e.g., 1000000000 = 1 token/sec)
+-- ARGV[3] = now_ns (UnixNano timestamp)
 
 local key = KEYS[1]
 local capacity = tonumber(ARGV[1])
-local refill_rate = tonumber(ARGV[2])
-local now = tonumber(ARGV[3])
+local refill_rate_ns = tonumber(ARGV[2])
+local now_ns = tonumber(ARGV[3])
 
--- Get current state
-local state = redis.call('HMGET', key, 'tokens', 'last_refill')
-local tokens = tonumber(state[1]) or capacity
-local last_refill = tonumber(state[2]) or now
+-- Get current state (nanosecond values)
+local state = redis.call('HMGET', key, 'tokens_ns', 'last_refill_ns')
+local tokens_ns = tonumber(state[1]) or (capacity * 1000000000)
+local last_refill_ns = tonumber(state[2]) or now_ns
 
--- Calculate refill
-local elapsed = now - last_refill
-local refilled = math.min(capacity, tokens + (elapsed * refill_rate))
+-- Calculate refill (integer arithmetic)
+local elapsed_ns = now_ns - last_refill_ns
+local tokens_to_add_ns = (elapsed_ns * 1000000000) / refill_rate_ns
+local capacity_ns = capacity * 1000000000
+local refilled_ns = math.min(capacity_ns, tokens_ns + tokens_to_add_ns)
 
--- Consume 1 token
-if refilled >= 1 then
-    refilled = refilled - 1
-    redis.call('HMSET', key, 'tokens', refilled, 'last_refill', now)
+-- Try to consume 1 token (1e9 nanoseconds)
+if refilled_ns >= 1000000000 then
+    refilled_ns = refilled_ns - 1000000000
+    redis.call('HMSET', key, 'tokens_ns', refilled_ns, 'last_refill_ns', now_ns)
     redis.call('EXPIRE', key, 120)
-    return {1, math.floor(refilled), now + math.ceil((capacity - refilled) / refill_rate)}
+    
+    -- Return: [allowed, remaining, resetAt]
+    local remaining = math.floor(refilled_ns / 1000000000)
+    local tokens_needed_ns = capacity_ns - refilled_ns
+    local wait_ns = (tokens_needed_ns * refill_rate_ns) / 1000000000
+    local reset_at = math.floor((now_ns + wait_ns) / 1000000000)
+    
+    return {1, remaining, reset_at}
 else
-    redis.call('HMSET', key, 'tokens', refilled, 'last_refill', now)
+    redis.call('HMSET', key, 'tokens_ns', refilled_ns, 'last_refill_ns', now_ns)
     redis.call('EXPIRE', key, 120)
-    return {0, 0, now + math.ceil((1 - refilled) / refill_rate)}
+    
+    -- Return: [denied, 0, resetAt]
+    local tokens_needed_ns = 1000000000 - refilled_ns
+    local wait_ns = (tokens_needed_ns * refill_rate_ns) / 1000000000
+    local reset_at = math.floor((now_ns + wait_ns) / 1000000000)
+    
+    return {0, 0, reset_at}
 end
 `
 
@@ -61,26 +76,26 @@ func NewRedisRateLimiter(cache *cache.RedisCache, capacity int, refillRate time.
 
 // Allow implements RateLimiter.Allow.
 func (r *RedisRateLimiter) Allow(ctx context.Context) (bool, int, int64, error) {
-	// Check if Redis is available
 	if r.cache == nil {
 		return false, 0, 0, fmt.Errorf("redis cache not available")
 	}
 
-	now := time.Now().Unix()
-	refillRatePerSec := 1.0 / r.refillRate.Seconds()
+	// Use nanoseconds
+	nowNs := time.Now().UnixNano()
+	refillRateNs := r.refillRate.Nanoseconds()
 
-	// Execute Lua script
+	// Execute Lua script with nanosecond values
 	result, err := r.cache.Client().Eval(ctx, r.script,
 		[]string{"ratelimit:global"},
 		r.capacity,
-		refillRatePerSec,
-		now,
+		refillRateNs,  // int64 nanoseconds
+		nowNs,         // int64 nanoseconds
 	).Result()
 	if err != nil {
 		return false, 0, 0, fmt.Errorf("redis eval failed: %w", err)
 	}
 
-	// Parse result [allowed, remaining, resetAt]
+	// Parse result (unchanged - already uses safe type assertions from PR #15 fixes)
 	results, ok := result.([]interface{})
 	if !ok || len(results) != 3 {
 		return false, 0, 0, fmt.Errorf("redis eval returned unexpected format: %v", result)
