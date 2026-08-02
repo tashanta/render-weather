@@ -24,6 +24,7 @@ import (
 	"github.com/yourusername/render-weather/internal/handlers"
 	"github.com/yourusername/render-weather/internal/middleware"
 	"github.com/yourusername/render-weather/internal/providers"
+	"github.com/yourusername/render-weather/internal/ratelimit"
 	"github.com/yourusername/render-weather/internal/services"
 )
 
@@ -69,7 +70,34 @@ func main() {
 	hybridCache := cache.NewHybridCache(memCache, redisCache, 1*time.Hour)
 	log.Info().Msg("hybrid cache (L1+L2) initialized")
 
-	// 6. Start background cache loader goroutine
+	// 6. Create rate limiters
+	// 6a. Create memory rate limiter (fallback, always initialized)
+	memRateLimiter := ratelimit.NewMemoryRateLimiter(
+		cfg.RateLimitCapacity,
+		cfg.RateLimitRefillRate,
+	)
+	log.Info().
+		Int("capacity", cfg.RateLimitCapacity).
+		Dur("refill_rate", cfg.RateLimitRefillRate).
+		Msg("memory rate limiter initialized (fallback)")
+
+	// 6b. Create Redis rate limiter (always created, even if Redis is down)
+	redisRateLimiter := ratelimit.NewRedisRateLimiter(
+		redisCache,
+		cfg.RateLimitCapacity,
+		cfg.RateLimitRefillRate,
+	)
+	if redisCache != nil {
+		log.Info().Msg("Redis rate limiter initialized")
+	} else {
+		log.Warn().Msg("Redis unavailable at startup, rate limiter will retry on each request")
+	}
+
+	// 6c. Create adaptive rate limiter (orchestrator)
+	rateLimiter := ratelimit.NewAdaptiveRateLimiter(redisRateLimiter, memRateLimiter)
+	log.Info().Msg("adaptive rate limiter initialized")
+
+	// 6d. Start background cache loader goroutine
 	background.StartCacheLoader(hybridCache)
 	log.Info().Msg("background cache loader started")
 
@@ -121,6 +149,7 @@ func main() {
 	router.Use(middleware.Logging())
 	router.Use(middleware.CORS(cfg.AllowedOrigins))
 	router.Use(middleware.Prometheus(promRegistry))
+	router.Use(middleware.RateLimit(rateLimiter, cfg.RateLimitCapacity)) // Rate limit before auth
 
 	// 11. Register public routes (no auth)
 	router.Get("/health", handlers.HealthHandler())

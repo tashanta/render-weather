@@ -18,6 +18,7 @@ type redisClient interface {
 	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) *redis.StatusCmd
 	Keys(ctx context.Context, pattern string) *redis.StringSliceCmd
 	Ping(ctx context.Context) *redis.StatusCmd
+	Eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd
 }
 
 type RedisCache struct {
@@ -68,4 +69,9 @@ func (c *RedisCache) Set(ctx context.Context, key string, value *models.Weather,
 
 func (c *RedisCache) Keys(ctx context.Context, pattern string) ([]string, error) {
 	return c.client.Keys(ctx, pattern).Result()
+}
+
+// Client returns the underlying Redis client for rate limiting
+func (c *RedisCache) Client() redisClient {
+	return c.client
 }

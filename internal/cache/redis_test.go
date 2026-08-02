@@ -67,6 +67,13 @@ func (m *mockRedisClient) Ping(ctx context.Context) *redis.StatusCmd {
 	return cmd
 }
 
+func (m *mockRedisClient) Eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd {
+	// Not needed for cache tests, return dummy command
+	cmd := redis.NewCmd(ctx)
+	cmd.SetVal(nil)
+	return cmd
+}
+
 func TestRedisCache_SetAndGet(t *testing.T) {
 	mock := newMockRedisClient()
 	cache := &RedisCache{client: mock}
