@@ -38,6 +38,10 @@ type Config struct {
 
 	// Logging
 	LogLevel string
+
+	// Rate limiting
+	RateLimitCapacity   int
+	RateLimitRefillRate time.Duration
 }
 
 func Load() (*Config, error) {
@@ -89,6 +93,10 @@ func Load() (*Config, error) {
 	cfg.CBMaxFailures = getEnvInt("CB_MAX_FAILURES", 5)
 	cfg.CBOpenDuration = time.Duration(getEnvInt("CB_OPEN_DURATION", 30)) * time.Second
 
+	// Rate limiting settings
+	cfg.RateLimitCapacity = getEnvInt("RATE_LIMIT_CAPACITY", 60)
+	cfg.RateLimitRefillRate = getEnvDuration("RATE_LIMIT_REFILL_RATE", 1*time.Second)
+
 	return cfg, nil
 }
 
@@ -122,4 +130,13 @@ func getEnvBool(key string, defaultValue bool) bool {
 	default:
 		return defaultValue
 	}
+}
+
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if duration, err := time.ParseDuration(value); err == nil {
+			return duration
+		}
+	}
+	return defaultValue
 }

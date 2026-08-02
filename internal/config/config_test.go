@@ -171,3 +171,37 @@ func TestGetEnvBool(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigRateLimitDefaults(t *testing.T) {
+	// Clear environment
+	os.Clearenv()
+	os.Setenv("PORT", "8080")
+	os.Setenv("REDIS_URL", "redis://localhost:6379")
+	os.Setenv("OPENWEATHER_API_KEY", "test-key")
+	os.Setenv("AUTH0_DOMAIN", "test.auth0.com")
+	os.Setenv("AUTH0_AUDIENCE", "https://api.test.com")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	// Check rate limit defaults
+	assert.Equal(t, 60, cfg.RateLimitCapacity)
+	assert.Equal(t, 1*time.Second, cfg.RateLimitRefillRate)
+}
+
+func TestConfigRateLimitCustom(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("PORT", "8080")
+	os.Setenv("REDIS_URL", "redis://localhost:6379")
+	os.Setenv("OPENWEATHER_API_KEY", "test-key")
+	os.Setenv("AUTH0_DOMAIN", "test.auth0.com")
+	os.Setenv("AUTH0_AUDIENCE", "https://api.test.com")
+	os.Setenv("RATE_LIMIT_CAPACITY", "100")
+	os.Setenv("RATE_LIMIT_REFILL_RATE", "2s")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, 100, cfg.RateLimitCapacity)
+	assert.Equal(t, 2*time.Second, cfg.RateLimitRefillRate)
+}
