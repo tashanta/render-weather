@@ -7,6 +7,7 @@ Production-ready weather API powered by OpenWeatherMap with Auth0 authentication
 - **Auth0 JWT Authentication** - Secure API access with background JWKS loading
 - **Hybrid Cache (L1 + L2)** - Memory (LRU) + Redis for high performance
 - **Circuit Breaker** - Automatic failover with retry/backoff logic
+- **Global Rate Limiting** - Token bucket algorithm with Redis/memory fallback (60 req/min default)
 - **Background Loaders** - Non-blocking cache preload and JWKS refresh
 - **Structured Logging** - JSON logging with zerolog (request IDs, duration, status)
 - **RESTful API** - Clean endpoints with proper HTTP status codes
@@ -40,7 +41,7 @@ AUTH0_AUDIENCE=https://your-api-audience
 ALLOWED_ORIGINS=https://example.com,https://app.example.com
 AUTH_ENABLED=true  # Set to false to disable authentication (dev only)
 RATE_LIMIT_CAPACITY=60           # Token bucket capacity (requests per minute)
-RATE_LIMIT_REFILL_RATE=1s        # Refill rate (1 token per second)
+RATE_LIMIT_REFILL_RATE=1s        # Token refill interval (1 token per second = 60 tokens/minute)
 ```
 
 ### 2. Start Redis
@@ -180,6 +181,7 @@ go test ./... -cover
 Coverage by package:
 - handlers: 100%
 - middleware: 100%
+- ratelimit: 93.8%
 - providers: 88.5%
 - background: 85.7%
 - config: 80.6%
@@ -195,6 +197,14 @@ go test ./... -race
 ```bash
 go test ./internal/handlers -v
 ```
+
+### Rate Limiting Precision Test
+Test the rate limiter over 60 seconds to verify it enforces exactly 60 RPM:
+```bash
+./scripts/test-rate-limit-precision.sh
+```
+
+This script makes continuous requests for 60 seconds and verifies the total count doesn't exceed 60 requests. It requires the API to be running locally.
 
 ## Building
 
@@ -232,9 +242,10 @@ docker compose up      # builds and starts the API (8080) + Redis
 │   ├── cache/               # L1 (memory), L2 (Redis), hybrid
 │   ├── config/              # Environment variable loading
 │   ├── handlers/            # HTTP handlers (weather, health)
-│   ├── middleware/          # Auth, logging, CORS, recovery
+│   ├── middleware/          # Auth, logging, CORS, rate limiting, recovery
 │   ├── models/              # Weather data model
 │   ├── providers/           # OpenWeatherMap API client
+│   ├── ratelimit/           # Rate limiting implementations (memory, Redis, adaptive)
 │   └── services/            # Weather service with circuit breaker
 ├── Dockerfile               # Multi-stage rootless build
 ├── docker-compose.yml       # Local stack (API + Redis)
@@ -246,11 +257,12 @@ docker compose up      # builds and starts the API (8080) + Redis
 
 ### Overview
 
-1. **Chi Router** with middleware stack (Recovery → Logging → CORS → Prometheus → Auth)
+1. **Chi Router** with middleware stack (Recovery → Logging → CORS → Prometheus → RateLimit → Auth)
 2. **Weather Service** wraps provider with circuit breaker
 3. **Hybrid Cache** checks L1 (memory), then L2 (Redis)
-4. **Background Loaders** preload cache and refresh JWKS keys
-5. **OpenWeatherMap Provider** with exponential backoff retry
+4. **Rate Limiter** token bucket with Redis/memory fallback
+5. **Background Loaders** preload cache and refresh JWKS keys
+6. **OpenWeatherMap Provider** with exponential backoff retry
 
 ### Startup Initialization (Non-Blocking)
 
@@ -297,7 +309,7 @@ Client → API (/weather/{city})
   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  1. Middleware Stack                                                        │
-│     Recovery → Logging (request_id) → CORS → Prometheus → Auth (JWT)        │
+│     Recovery → Logging (request_id) → CORS → Prometheus → RateLimit → Auth │
 └─────────────────────────────────────────────────────────────────────────────┘
   │
   ▼
@@ -373,6 +385,61 @@ Client → API (/weather/{city})
 | Failure threshold | 5 consecutive failures | Triggers OPEN state |
 | Open duration | 30 seconds | Time before HALF-OPEN test |
 | Failure conditions | 429, 5xx, timeout, network error | What counts as failure |
+
+### Rate Limiting
+
+The API implements a **token bucket** algorithm for global rate limiting with nanosecond precision to prevent request overage.
+
+#### Architecture
+
+**Adaptive Rate Limiter:**
+```
+Request → RateLimit Middleware
+            │
+            ▼
+      AdaptiveRateLimiter
+            │
+            ├─► Try Redis first (distributed)
+            │   ├─ Success → Return decision
+            │   └─ Failure → Log ERROR, fall back to memory
+            │
+            └─► MemoryRateLimiter (fallback)
+                └─ Success → Return decision
+```
+
+#### Implementations
+
+| Implementation | Scope | Use Case | Precision |
+|---------------|-------|----------|-----------|
+| **RedisRateLimiter** | Multi-instance (distributed) | Production with multiple replicas | Nanosecond (Lua script with int64) |
+| **MemoryRateLimiter** | Single-instance | Development or Redis unavailable | Nanosecond (int64 arithmetic) |
+| **AdaptiveRateLimiter** | Hybrid | Production with graceful degradation | Inherits from active limiter |
+
+**Token Bucket Parameters:**
+- **Capacity**: 60 tokens (configurable via `RATE_LIMIT_CAPACITY`)
+- **Refill Rate**: 1 token/second (configurable via `RATE_LIMIT_REFILL_RATE`)
+- **Default Limit**: 60 requests/minute
+
+**Rate Limit Headers (RFC 6585):**
+```http
+X-RateLimit-Limit: 60          # Maximum requests per minute
+X-RateLimit-Remaining: 42      # Tokens left after this request
+X-RateLimit-Reset: 1722600060  # Unix timestamp when bucket refills
+Retry-After: 15                # Seconds until next allowed request (429 only)
+```
+
+**Precision Fix:**
+The rate limiter uses **int64 nanoseconds** internally (not float64 seconds) to eliminate rounding errors that previously allowed 111 RPM instead of 60 RPM. See `docs/superpowers/specs/2026-08-03-rate-limiter-nanosecond-precision.md` for details.
+
+**Failure Mode:**
+The middleware **fails open** on internal errors (e.g., Redis connection failure) to prioritize service availability. Errors are logged but requests are allowed through.
+
+**Testing:**
+Run the precision test script to verify the rate limiter enforces exactly 60 RPM over 60 seconds:
+```bash
+chmod +x scripts/test-rate-limit-precision.sh
+./scripts/test-rate-limit-precision.sh
+```
 
 ### Retry & Backoff Configuration
 
@@ -591,6 +658,8 @@ The `render.yaml` file defines infrastructure as code for Render.com. Render aut
 | `CB_TIMEOUT` | Fixed value | Circuit breaker timeout in ms (1000) |
 | `CB_MAX_FAILURES` | Fixed value | Failures before opening (5) |
 | `CB_OPEN_DURATION` | Fixed value | Open circuit duration in seconds (30) |
+| `RATE_LIMIT_CAPACITY` | Fixed value | Rate limit capacity (60 requests/minute) |
+| `RATE_LIMIT_REFILL_RATE` | Fixed value | Token refill interval (1s) |
 | `LOG_LEVEL` | Fixed value | Log level (`info`) |
 
 #### GitOps Deployment Flow
@@ -621,7 +690,7 @@ This section describes what's missing to make the application fully production-r
 
 | Priority | Item | Description |
 |----------|------|-------------|
-| SHOULD | **Per-user rate limiting** | Currently not implemented. A 429 from this API would have the same user impact as a 429 from OpenWeatherMap. If needed, implement rate limiting per user (based on JWT `sub` claim) with limits lower than OpenWeatherMap's. However, additional caching layers (see Infrastructure) provide better value. |
+| SHOULD | **Per-user rate limiting** | Implement rate limiting per user (based on JWT `sub` claim) for finer-grained control. Currently, global rate limiting protects against bulk abuse. Per-user limits would prevent individual users from monopolizing the quota but add complexity. Additional caching layers (see Infrastructure) may provide better value. |
 
 ### Infrastructure
 
