@@ -68,10 +68,12 @@ func TestRateLimiterIntegration(t *testing.T) {
 	router.Use(middleware.Logging())
 	router.Use(middleware.CORS([]string{"*"}))
 	router.Use(middleware.Prometheus(prometheus.NewRegistry()))
-	router.Use(middleware.RateLimit(rateLimiter, cfg.RateLimitCapacity)) // Rate limit BEFORE auth
 
-	// 5. Register protected route (no auth for test)
-	router.Get("/weather/{city}", handlers.WeatherHandler(weatherService))
+	// 5. Register protected route (with rate limit, no auth for test)
+	router.Group(func(r chi.Router) {
+		r.Use(middleware.RateLimit(rateLimiter, cfg.RateLimitCapacity)) // Rate limit before auth
+		r.Get("/weather/{city}", handlers.WeatherHandler(weatherService))
+	})
 
 	// Test: Send capacity+1 requests, expect last one to be rate limited
 	testServer := httptest.NewServer(router)
@@ -106,6 +108,73 @@ func TestRateLimiterIntegration(t *testing.T) {
 	assert.NotEmpty(t, resp.Header.Get("X-RateLimit-Limit"))
 	assert.NotEmpty(t, resp.Header.Get("X-RateLimit-Remaining"))
 	assert.NotEmpty(t, resp.Header.Get("X-RateLimit-Reset"))
+}
+
+// TestPublicEndpointsNotRateLimited verifies /health and /metrics are NOT rate limited
+func TestPublicEndpointsNotRateLimited(t *testing.T) {
+	// Setup: Create router with rate limiting middleware
+	cfg := &config.Config{
+		RateLimitCapacity:   5, // Low capacity for testing
+		RateLimitRefillRate: 1 * time.Second,
+	}
+
+	memRateLimiter := ratelimit.NewMemoryRateLimiter(
+		cfg.RateLimitCapacity,
+		cfg.RateLimitRefillRate,
+	)
+
+	redisRateLimiter := ratelimit.NewRedisRateLimiter(
+		nil, // No Redis for test
+		cfg.RateLimitCapacity,
+		cfg.RateLimitRefillRate,
+	)
+
+	rateLimiter := ratelimit.NewAdaptiveRateLimiter(redisRateLimiter, memRateLimiter)
+
+	// Create router with middleware stack
+	router := chi.NewRouter()
+	router.Use(middleware.Recovery())
+	router.Use(middleware.Logging())
+	router.Use(middleware.CORS([]string{"*"}))
+	router.Use(middleware.Prometheus(prometheus.NewRegistry()))
+
+	// Register public routes (no rate limit)
+	router.Get("/health", handlers.HealthHandler())
+
+	// Register protected routes with rate limit
+	memCache := cache.NewMemoryCache(100)
+	hybridCache := cache.NewHybridCache(memCache, nil, 1*time.Hour)
+	owmProvider := providers.NewOpenWeatherMapProvider("test-key", 5*time.Second)
+	weatherService := services.NewWeatherService(
+		owmProvider,
+		hybridCache,
+		5*time.Second,
+		5,
+		30*time.Second,
+		1*time.Hour,
+	)
+
+	router.Group(func(r chi.Router) {
+		r.Use(middleware.RateLimit(rateLimiter, cfg.RateLimitCapacity))
+		r.Get("/weather/{city}", handlers.WeatherHandler(weatherService))
+	})
+
+	testServer := httptest.NewServer(router)
+	defer testServer.Close()
+
+	// Test: Send capacity+10 requests to /health
+	// None should be rate limited
+	for i := 0; i < cfg.RateLimitCapacity+10; i++ {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/health", testServer.URL), nil)
+		require.NoError(t, err)
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode,
+			"Request %d to /health should NOT be rate limited", i+1)
+	}
 }
 
 // TestMain ensures test environment is set up

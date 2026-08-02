@@ -149,16 +149,16 @@ func main() {
 	router.Use(middleware.Logging())
 	router.Use(middleware.CORS(cfg.AllowedOrigins))
 	router.Use(middleware.Prometheus(promRegistry))
-	router.Use(middleware.RateLimit(rateLimiter, cfg.RateLimitCapacity)) // Rate limit before auth
 
-	// 11. Register public routes (no auth)
+	// 11. Register public routes (no auth, no rate limit)
 	router.Get("/health", handlers.HealthHandler())
 	router.Handle("/metrics", promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{
 		Registry: promRegistry,
 	}))
 
-	// 12. Register protected routes (with auth)
+	// 12. Register protected routes (with rate limit + auth)
 	router.Group(func(r chi.Router) {
+		r.Use(middleware.RateLimit(rateLimiter, cfg.RateLimitCapacity)) // Rate limit before auth
 		r.Use(authMiddleware)
 		r.Get("/weather/{city}", handlers.WeatherHandler(weatherService))
 		r.Get("/api/v1/weather/{city}", handlers.WeatherHandler(weatherService))
